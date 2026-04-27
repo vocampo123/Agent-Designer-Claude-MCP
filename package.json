@@ -1,0 +1,20 @@
+{
+  "name": "agentforce-mcp-server",
+  "version": "1.0.0",
+  "description": "Claude Code MCP plugin for designing and generating Salesforce Agentforce agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.2",
+    "@types/node": "^20.0.0"
+  }
+}

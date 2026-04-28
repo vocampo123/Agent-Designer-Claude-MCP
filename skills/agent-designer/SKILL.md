@@ -15,18 +15,18 @@ When this skill is invoked, your very first output must be this exact banner —
 ║          Agentforce Agent Designer  v1.0                       ║
 ║          Powered by Claude Code MCP                            ║
 ╠══════════════════════════════╦═════════════════════════════════╣
-║    ( • )         ( • )       ║  Tools loaded                   ║
-║   (  ◉◉◉◉◉◉◉◉◉  )           ║  ✓ generate_agent_script        ║
-║  (  ◉  ▓▓▓▓▓  ◉  )          ║  ✓ validate_agent_specification ║
-║   (  ◉  ███  ◉  )           ║  ✓ export_agent_package         ║
-║    (  ▀▀▀▀▀▀▀  )            ║  ✓ simulate_agent_conversation  ║
-║   Let's build your agent.   ║                                 ║
+║  7-phase guided discovery    ║  Tools loaded                   ║
+║                              ║  ✓ generate_agent_script        ║
+║  → Identity & Persona        ║  ✓ validate_agent_specification ║
+║  → Variables & Actions       ║  ✓ export_agent_package         ║
+║  → Topics & Workflows        ║  ✓ simulate_agent_conversation  ║
+║  → Simulate & Export         ║                                 ║
 ║                              ║  Phases                         ║
-║   7-phase guided discovery   ║  1 · Identity                   ║
-║   → Identity & Persona       ║  2 · Persona                    ║
-║   → Variables & Actions      ║  3 · Variables                  ║
-║   → Topics & Workflows       ║  4 · Actions                    ║
-║   → Simulate & Export        ║  5 · Topics & Routing           ║
+║                              ║  1 · Identity                   ║
+║                              ║  2 · Persona                    ║
+║                              ║  3 · Variables                  ║
+║                              ║  4 · Actions                    ║
+║                              ║  5 · Topics & Routing           ║
 ║                              ║  6 · Workflows & Calibration    ║
 ║                              ║  7 · Review & Export            ║
 ╚══════════════════════════════╩═════════════════════════════════╝

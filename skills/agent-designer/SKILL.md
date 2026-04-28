@@ -298,9 +298,28 @@ Call `validate_agent_specification` with the full AgentFormData. Display any err
 If valid, ask: "Ready to generate the Agent Script?"
 
 On confirmation:
-1. Call `export_agent_package` — display the `.agent` file content in a code block
-2. Tell the user: "Save `[developer_name].agent` and import it into Agentforce Builder, or copy it into your DX project at `force-app/main/default/aiAuthoringBundles/[developer_name]/`"
-3. Offer: "Want to run a quick simulation to test the agent before you export?"
+1. Call `export_agent_package` to get all deployment files.
+2. Write each file to disk in a folder named `[developer_name]-agent-export/` in the current working directory:
+   - `[developer_name].agent`
+   - `[developer_name]-bundle.xml`
+   - `[developer_name]-spec.md`
+   - `[developer_name]-manifest.json`
+   - `README.md`
+3. Do NOT print file contents. Instead show this summary:
+
+```
+✓ Export complete → [developer_name]-agent-export/
+
+  [developer_name].agent          (Agent Script — import into Agentforce Builder)
+  [developer_name]-bundle.xml     (Bundle metadata XML)
+  [developer_name]-spec.md        (Human-readable spec)
+  [developer_name]-manifest.json  (Export manifest)
+  README.md                       (Deployment instructions)
+
+To deploy: copy the folder to force-app/main/default/aiAuthoringBundles/
+```
+
+4. Offer: "Want to run a quick simulation to test the agent before you deploy?"
 
 ---
 

@@ -3,22 +3,18 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  ListPromptsRequestSchema,
-  GetPromptRequestSchema,
 } from '@modelcontextprotocol/sdk/types.js';
 
 import { generateAgentScriptTool } from './tools/generateAgentScript.js';
 import { validateAgentSpecTool } from './tools/validateAgentSpec.js';
 import { exportAgentPackageTool } from './tools/exportAgentPackage.js';
 import { simulateAgentConversationTool } from './tools/simulateAgentConversation.js';
-import { agentDesignerPrompt } from './prompts/agentDesigner.js';
 
 const tools = [generateAgentScriptTool, validateAgentSpecTool, exportAgentPackageTool, simulateAgentConversationTool];
-const prompts = [agentDesignerPrompt];
 
 const server = new Server(
   { name: 'agentforce-mcp-server', version: '1.0.0' },
-  { capabilities: { tools: {}, prompts: {} } }
+  { capabilities: { tools: {} } }
 );
 
 // ── Tools ────────────────────────────────────────────────────────────────────
@@ -46,27 +42,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const message = err instanceof Error ? err.message : String(err);
     return { content: [{ type: 'text', text: `Error: ${message}` }], isError: true };
   }
-});
-
-// ── Prompts ──────────────────────────────────────────────────────────────────
-
-server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-  prompts: prompts.map(p => ({ name: p.name, description: p.description })),
-}));
-
-server.setRequestHandler(GetPromptRequestSchema, async (request) => {
-  const prompt = prompts.find(p => p.name === request.params.name);
-  if (!prompt) {
-    throw new Error(`Unknown prompt: ${request.params.name}`);
-  }
-  return {
-    messages: [
-      {
-        role: 'user',
-        content: { type: 'text', text: prompt.text },
-      },
-    ],
-  };
 });
 
 // ── Start ────────────────────────────────────────────────────────────────────

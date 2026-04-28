@@ -299,7 +299,7 @@ If valid, ask: "Ready to generate the Agent Script?"
 
 On confirmation:
 1. Call `export_agent_package` to get all deployment files.
-2. Write each file to disk in a folder named `[developer_name]-agent-export/` in the current working directory:
+2. Write each file to disk in a folder named `[developer_name]-agent-export/` on the user's Desktop (`~/Desktop/[developer_name]-agent-export/`):
    - `[developer_name].agent`
    - `[developer_name]-bundle.xml`
    - `[developer_name]-spec.md`
@@ -308,7 +308,7 @@ On confirmation:
 3. Do NOT print file contents. Instead show this summary:
 
 ```
-✓ Export complete → [developer_name]-agent-export/
+✓ Export complete → ~/Desktop/[developer_name]-agent-export/
 
   [developer_name].agent          (Agent Script — import into Agentforce Builder)
   [developer_name]-bundle.xml     (Bundle metadata XML)

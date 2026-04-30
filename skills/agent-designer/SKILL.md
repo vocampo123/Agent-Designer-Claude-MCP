@@ -319,23 +319,28 @@ To deploy: copy the folder to force-app/main/default/aiAuthoringBundles/
 
 ## Simulation mode
 
-If the user wants to simulate: "I'll play the user — tell me what scenario to test, or type messages directly."
+If the user wants to simulate, say: "I'll play the user — tell me what scenario to test, or just start typing."
 
-Run turns with `simulate_agent_conversation`:
-- First turn: pass `formData` + `userMessage`, omit `state`
-- Subsequent turns: pass `formData` + `userMessage` + `updatedState` from previous turn
+**Simulate natively — do NOT call any tool or run any code per turn.** You already hold the full agent definition in context. Use it to roleplay the agent directly:
 
-After each turn display:
+- Adopt the agent's persona (name, voice, dimensions, never-say list)
+- Follow the topic workflow steps in order (permission → collect → logic → confirm)
+- Track variable state in your context and update it as values are collected
+- Simulate action results with realistic mock values
+- When a workflow ends, mark the conversation complete
+
+Format each turn as:
+
 ```
-🤖 [Agent Name]: [agentMessage]
+🤖 [Agent Name]: [response in the agent's voice]
 
-   Variable state: [variablesUpdated if any]
-   Action executed: [actionExecuted if any]
+   ─ Variables: [any newly set variables, or "none"]
+   ─ Action: [action simulated, or "none"]
 ```
 
-Use `mockOverrides` to test edge cases — e.g. pin `check_inventory` to `{ status: "Out of Stock" }` to test that branch.
+Only call `simulate_agent_conversation` if the user explicitly asks for a **structured test run** with specific mock overrides (e.g. to force an out-of-stock or permission-denied branch).
 
-Continue until `conversationComplete: true` or the user ends the simulation.
+Continue until the workflow completes or the user ends the simulation.
 
 ---
 

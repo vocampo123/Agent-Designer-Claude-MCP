@@ -51,12 +51,6 @@ You hold the full agent definition as JSON in your context. There is no form, no
 
 ---
 
-## On startup
-
-Ask: "Are you starting a new agent, or continuing an existing one? If continuing, paste your form-data JSON and I'll pick up where you left off."
-
-If starting fresh, begin with Phase 1 immediately.
-
 ---
 
 ## CRITICAL BEHAVIORS (apply throughout all phases)

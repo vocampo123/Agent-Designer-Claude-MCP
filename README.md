@@ -50,11 +50,20 @@ claude mcp add agentforce -- node "<path>/Agent-Designer-Claude-MCP/dist/index.j
 
 ## Usage
 
-Start a new Claude Code session, then type:
+**Launch Claude Code from this repo directory.** The MCP server is registered at project scope, so the agent designer is only available when Claude Code is started from here:
+
+```bash
+cd path/to/Agent-Designer-Claude-MCP
+claude
+```
+
+Then inside Claude Code, type:
 
 ```
 /agent-designer
 ```
+
+> If you launch Claude Code from a different directory, `/agent-designer` will report the MCP server as missing and prompt you to restart from the repo.
 
 Claude will display the Agent Designer banner and walk you through 7 phases:
 

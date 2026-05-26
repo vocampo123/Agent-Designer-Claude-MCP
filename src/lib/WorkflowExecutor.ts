@@ -19,12 +19,13 @@ export class WorkflowExecutor {
   constructor(private mockEngine: MockActionEngine) {}
 
   executePhase(phase: WorkflowPhase, state: RuntimeState, formData: AgentFormData): PhaseResult {
+    const cfg = phase.config ?? {};
     switch (phase.type) {
-      case 'permission': return this.permission(phase.config as PermissionConfig, state, formData);
-      case 'collect':    return this.collect(phase.config as CollectConfig, state);
-      case 'logic':      return this.logic(phase.config as LogicConfig, state, formData);
-      case 'action':     return this.action(phase.config as ActionConfig, state, formData);
-      case 'confirm':    return this.confirm(phase.config as ConfirmConfig, state);
+      case 'permission': return this.permission(cfg as PermissionConfig, state, formData);
+      case 'collect':    return this.collect(cfg as CollectConfig, state);
+      case 'logic':      return this.logic(cfg as LogicConfig, state, formData);
+      case 'action':     return this.action(cfg as ActionConfig, state, formData);
+      case 'confirm':    return this.confirm(cfg as ConfirmConfig, state);
       default:           return { message: '', nextPhase: true };
     }
   }

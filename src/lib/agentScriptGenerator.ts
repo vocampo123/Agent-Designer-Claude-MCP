@@ -88,7 +88,7 @@ function formatConditionForText(condition: string): string {
 function getActionRefsFromWorkflow(workflow: WorkflowPhase[]): string[] {
   const refs = new Set<string>();
   for (const phase of workflow) {
-    const cfg = phase.config as Record<string, any>;
+    const cfg = (phase.config ?? {}) as Record<string, any>;
     if (cfg.checkAction) refs.add(cfg.checkAction);
     if (cfg.actionToRun) refs.add(cfg.actionToRun);
     if (cfg.submitAction) refs.add(cfg.submitAction);
@@ -112,7 +112,7 @@ function generateProceduralInstructions(
   for (const phase of topic.workflow ?? []) {
     switch (phase.type) {
       case 'permission': {
-        const cfg = phase.config as PermissionConfig;
+        const cfg = (phase.config ?? {}) as PermissionConfig;
         if (cfg.blockedRoles?.length) {
           const roleVar = cfg.roleVariable || 'requestor_role';
           if (validVars.has(roleVar)) {
@@ -124,7 +124,7 @@ function generateProceduralInstructions(
         break;
       }
       case 'collect': {
-        const cfg = phase.config as CollectConfig;
+        const cfg = (phase.config ?? {}) as CollectConfig;
         if (cfg.variableName && cfg.prompt && validVars.has(cfg.variableName)) {
           lines.push(`${indent(base)}|`);
           lines.push(`${indent(base)}| Collect ${cfg.variableName.replace(/_/g, ' ')}:`);
@@ -135,7 +135,7 @@ function generateProceduralInstructions(
         break;
       }
       case 'logic': {
-        const cfg = phase.config as LogicConfig;
+        const cfg = (phase.config ?? {}) as LogicConfig;
         if (cfg.actionToRun) {
           const action = actions.find(a => a.name === cfg.actionToRun);
           if (action) {
@@ -153,7 +153,7 @@ function generateProceduralInstructions(
         break;
       }
       case 'action': {
-        const cfg = phase.config as ActionConfig;
+        const cfg = (phase.config ?? {}) as ActionConfig;
         if (cfg.actionName) {
           const action = actions.find(a => a.name === cfg.actionName);
           if (action) {
@@ -164,7 +164,7 @@ function generateProceduralInstructions(
         break;
       }
       case 'confirm': {
-        const cfg = phase.config as ConfirmConfig;
+        const cfg = (phase.config ?? {}) as ConfirmConfig;
         lines.push(`${indent(base)}|`);
         lines.push(`${indent(base)}| Before submitting, confirm with the user:`);
         for (const field of cfg.summaryFields ?? []) {
@@ -236,21 +236,21 @@ function generateReasoningActionsBlock(
 
   for (const phase of workflow ?? []) {
     if (phase.type === 'logic') {
-      const cfg = phase.config as LogicConfig;
+      const cfg = (phase.config ?? {}) as LogicConfig;
       if (cfg.actionToRun && !processed.has(cfg.actionToRun)) {
         const action = actions.find(a => a.name === cfg.actionToRun);
         if (action) emitAction(action, cfg.actionInputs ?? {}, cfg.actionOutputs ?? {}, cfg.condition);
       }
     }
     if (phase.type === 'action') {
-      const cfg = phase.config as ActionConfig;
+      const cfg = (phase.config ?? {}) as ActionConfig;
       if (cfg.actionName && !processed.has(cfg.actionName)) {
         const action = actions.find(a => a.name === cfg.actionName);
         if (action) emitAction(action, cfg.inputs ?? {}, cfg.outputs ?? {});
       }
     }
     if (phase.type === 'confirm') {
-      const cfg = phase.config as ConfirmConfig;
+      const cfg = (phase.config ?? {}) as ConfirmConfig;
       if (cfg.submitAction && !processed.has(cfg.submitAction)) {
         const action = actions.find(a => a.name === cfg.submitAction);
         if (action) {
@@ -276,7 +276,7 @@ function generateReasoningActionsBlock(
       }
     }
     if (phase.type === 'permission') {
-      const cfg = phase.config as PermissionConfig;
+      const cfg = (phase.config ?? {}) as PermissionConfig;
       if (cfg.checkAction && !processed.has(cfg.checkAction)) {
         const action = actions.find(a => a.name === cfg.checkAction);
         if (action) {

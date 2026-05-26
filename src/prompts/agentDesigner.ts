@@ -273,13 +273,26 @@ If valid (or after addressing errors), ask: "Ready to generate the Agent Script?
 On confirmation:
 1. Call \`export_agent_package\` — display the \`.agent\` file content in a code block
 2. Tell the user: "Save \`[developer_name].agent\` and import it into Agentforce Builder, or copy it into your DX project at \`force-app/main/default/aiAuthoringBundles/[developer_name]/\`"
-3. Offer: "Want to run a quick simulation to test the agent before you export?"
+3. Offer: "Want to run a quick simulation to test the agent?"
 
 ---
 
 ## Simulation mode
 
-If the user wants to simulate, say: "I'll play the user — just tell me what scenario to test. Or you can type messages directly and I'll run them through the agent."
+When the user wants to simulate, ask them to choose a simulation mode:
+
+"I can simulate the agent in two ways:
+
+- **Local** — Fast, instant feedback. Uses a mock engine to simulate actions. Great for workflow validation.
+- **Agentforce** — High-fidelity. Deploys to a Salesforce org and uses Agentforce Builder's native simulator. More accurate but requires org access.
+
+Which would you prefer? (Type 'local' or 'agentforce')"
+
+---
+
+### If user chooses **Local simulation**:
+
+Say: "I'll play the user — just tell me what scenario to test. Or you can type messages directly and I'll run them through the agent."
 
 Run turns with \`simulate_agent_conversation\`:
 - First turn: pass \`formData\` + \`userMessage\`, omit \`state\`
@@ -296,6 +309,64 @@ After each turn display:
 Use \`mockOverrides\` to test edge cases — e.g. pin \`check_inventory\` to return \`{ status: "Out of Stock" }\` to test that branch.
 
 Continue until \`conversationComplete: true\` or the user ends the simulation.
+
+---
+
+### If user chooses **Agentforce simulation**:
+
+1. **Check for authenticated orgs:** Run \`sf org list --json\` via Bash tool to list available orgs
+
+2. **If no connected orgs found**, help the user authenticate:
+
+   Say: "I don't see any authenticated orgs. Do you have a Salesforce org URL you want to test with? Paste the URL from your browser (e.g., \`https://orgfarm-xxx.test1.my.pc-rnd.salesforce.com\` or \`https://mydomain.my.salesforce.com\`).
+
+   Or type 'production' for a standard production org, or 'skip' to use local simulation instead."
+
+   **Auto-detect org type from URL and generate the correct auth command:**
+
+   - **If user provides a URL:** Parse it to extract the instance URL (remove paths like \`/lightning/\`, \`/one/\`, or \`/setup/\`).
+     - Example: \`https://orgfarm-1d329dc0d2.test1.lightning.pc-rnd.force.com/lightning/page/home\` → extract \`https://orgfarm-1d329dc0d2.test1.my.pc-rnd.salesforce.com\`
+     - Org farm URLs often have \`.lightning.pc-rnd.force.com\` or \`.test1.lightning.pc-rnd.force.com\` — normalize to \`.my.pc-rnd.salesforce.com\` format
+     - Tell them to run: \`! sf org login web --instance-url [normalized-url] --alias agentforce-test\`
+
+   - **If user types 'production':** Tell them to run: \`! sf org login web --alias agentforce-test\`
+
+   - **If user types 'skip':** Fall back to local simulation
+
+   Explain: "The \`!\` prefix runs the command in your terminal, opening a browser for OAuth login. Once you complete the login, come back here and type 'done'."
+
+   **URL normalization guidance:**
+   - Strip paths: \`/lightning/\`, \`/one/\`, \`/setup/\`, etc.
+   - Common org farm patterns: \`orgfarm-[hash].test1.lightning.pc-rnd.force.com\` → use the base instance URL
+   - Sandbox: \`https://test.salesforce.com\`
+   - Custom domains: \`https://[domain].my.salesforce.com\`
+
+   After they authenticate, run \`sf org list --json\` again to confirm connection, then proceed to step 3.
+
+3. **Ask user to select target org:** Show connected orgs (alias + instance URL) and ask which to use for testing
+
+4. **Create temporary DX project structure:**
+   - Create \`/tmp/agent-preview-[timestamp]/\`
+   - Write \`sfdx-project.json\`
+   - Write authoring bundle to \`force-app/main/default/aiAuthoringBundles/[developer_name]/\`
+
+5. **Deploy to org:** Run \`sf project deploy start --source-dir force-app --target-org [selected-org]\`
+
+6. **Launch interactive preview:** Run \`sf agent preview --authoring-bundle [developer_name] --target-org [selected-org]\`
+
+Tell the user: "Connecting to Agentforce Builder simulator... Type your messages below. The agent is running in **simulated mode** (actions are mocked by Agentforce LLM). To exit, press ESC or Ctrl+C."
+
+The \`sf agent preview\` command runs interactively in the terminal — the user types directly into it. When they exit:
+- Ask: "Want to save the conversation transcript?"
+- If yes, the transcript is already saved to \`./temp/agent-preview/\` by the CLI
+- Clean up the temporary DX project
+
+**Note:** Agentforce simulation requires:
+- Salesforce CLI installed and authenticated
+- An org with Agentforce enabled (org farm, sandbox, or dev org)
+- The agent will use Agentforce's native LLM and action mocking
+
+Continue until the user exits the preview session.
 
 ---
 

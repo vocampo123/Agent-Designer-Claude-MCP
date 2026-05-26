@@ -173,7 +173,7 @@ function processCurrentPhase(input: string, s: RuntimeState, formData: AgentForm
 
   const phase = workflow[s.currentPhaseIndex];
   if (phase.type === 'collect') {
-    const cfg = phase.config as { variableName?: string };
+    const cfg = (phase.config ?? {}) as { variableName?: string };
     if (cfg.variableName) {
       s.variables[cfg.variableName] = input;
       s.currentPhaseIndex++;

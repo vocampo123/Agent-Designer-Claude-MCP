@@ -13,7 +13,14 @@ import type {
   ActionConfig,
   ConfirmConfig,
   PersonaCalibration,
+  Parameter,
+  Variable,
 } from '../types/agent.js';
+import {
+  applyActionDefaults,
+  applyVariableDefaults,
+  inferLabel,
+} from './metadataInference.js';
 
 const INDENT = '   '; // 3-space indent per official Agent Script standard
 
@@ -387,6 +394,9 @@ export function generateAgentScript(formData: AgentFormData): string {
   lines.push(`${indent(1)}agent_name: "${escapeString(formData.config.developer_name)}"`);
   lines.push(`${indent(1)}agent_label: "${escapeString(formData.config.agent_label)}"`);
   lines.push(`${indent(1)}description: "${escapeString(formData.config.description)}"`);
+  if (formData.config.agent_type) {
+    lines.push(`${indent(1)}agent_type: "${escapeString(formData.config.agent_type)}"`);
+  }
   lines.push('');
 
   // SYSTEM
@@ -414,14 +424,31 @@ export function generateAgentScript(formData: AgentFormData): string {
     lines.push('variables:');
     let currentCategory = '';
     for (const v of formData.variables) {
-      if (v.category && v.category !== currentCategory) {
-        lines.push(`${indent(1)}# ${v.category}`);
-        currentCategory = v.category;
+      // Apply smart defaults
+      const enhancedVar = applyVariableDefaults(v);
+
+      if (enhancedVar.category && enhancedVar.category !== currentCategory) {
+        lines.push(`${indent(1)}# ${enhancedVar.category}`);
+        currentCategory = enhancedVar.category;
       }
-      let varLine = `${indent(1)}${v.name}: mutable ${mapType(v.type)}`;
-      varLine += ` = ${formatDefaultValue(v.defaultValue ?? '', v.type)}`;
-      lines.push(varLine);
-      if (v.description) lines.push(`${indent(2)}description: "${escapeString(sanitizeForSingleLineString(v.description))}"`);
+
+      // Handle linked vs mutable variables
+      if (enhancedVar.linked && enhancedVar.source) {
+        let varLine = `${indent(1)}${enhancedVar.name}: linked ${mapType(enhancedVar.type)}`;
+        lines.push(varLine);
+        lines.push(`${indent(2)}source: ${enhancedVar.source}`);
+      } else {
+        let varLine = `${indent(1)}${enhancedVar.name}: mutable ${mapType(enhancedVar.type)}`;
+        varLine += ` = ${formatDefaultValue(enhancedVar.defaultValue ?? '', enhancedVar.type)}`;
+        lines.push(varLine);
+      }
+
+      if (enhancedVar.description) {
+        lines.push(`${indent(2)}description: "${escapeString(sanitizeForSingleLineString(enhancedVar.description))}"`);
+      }
+      if (enhancedVar.visibility) {
+        lines.push(`${indent(2)}visibility: "${enhancedVar.visibility}"`);
+      }
     }
     lines.push('');
   }
@@ -430,12 +457,30 @@ export function generateAgentScript(formData: AgentFormData): string {
   if (formData.language?.default_locale) {
     lines.push('language:');
     lines.push(`${indent(1)}default_locale: "${formData.language.default_locale}"`);
+    if (formData.language.additional_locales) {
+      lines.push(`${indent(1)}additional_locales: "${formData.language.additional_locales}"`);
+    }
+    lines.push('');
+  }
+
+  // KNOWLEDGE
+  if (formData.knowledge) {
+    lines.push('knowledge:');
+    if (formData.knowledge.citations_enabled !== undefined) {
+      lines.push(`${indent(1)}citations_enabled: ${formData.knowledge.citations_enabled ? 'True' : 'False'}`);
+    }
     lines.push('');
   }
 
   // START_AGENT
   const startName = formData.startAgent?.name ?? 'topic_selector';
   lines.push(`start_agent ${startName}:`);
+
+  // Add label if present
+  if (formData.startAgent?.label) {
+    lines.push(`${indent(1)}label: "${escapeString(formData.startAgent.label)}"`);
+  }
+
   const startDesc = formData.startAgent?.description ?? 'Routes conversations to appropriate topics';
   lines.push(`${indent(1)}description: "${escapeString(sanitizeForSingleLineString(startDesc))}"`);
   lines.push(`${indent(1)}reasoning:`);
@@ -468,6 +513,13 @@ export function generateAgentScript(formData: AgentFormData): string {
   // SUBAGENTS (formerly TOPICS)
   for (const topic of formData.topics ?? []) {
     lines.push(`subagent ${topic.name}:`);
+
+    // Add label if present (falls back to displayName)
+    const topicLabel = topic.label || topic.displayName;
+    if (topicLabel) {
+      lines.push(`${indent(1)}label: "${escapeString(topicLabel)}"`);
+    }
+
     lines.push(`${indent(1)}description: "${escapeString(sanitizeForSingleLineString(topic.description))}"`);
 
     const actionRefs = getActionRefsFromWorkflow(topic.workflow);
@@ -476,24 +528,85 @@ export function generateAgentScript(formData: AgentFormData): string {
     if (topicActions.length > 0) {
       lines.push(`${indent(1)}actions:`);
       for (const action of topicActions) {
-        lines.push(`${indent(2)}${action.name}:`);
-        lines.push(`${indent(3)}description: "${escapeString(sanitizeForSingleLineString(action.description))}"`);
-        if (action.inputs?.length) {
+        // Apply smart defaults to action metadata
+        const enhancedAction = applyActionDefaults(action, formData.config.developer_name);
+
+        lines.push(`${indent(2)}${enhancedAction.name}:`);
+        lines.push(`${indent(3)}description: "${escapeString(sanitizeForSingleLineString(enhancedAction.description))}"`);
+
+        // Add label if present
+        if (enhancedAction.label) {
+          lines.push(`${indent(3)}label: "${escapeString(enhancedAction.label)}"`);
+        }
+
+        // Add confirmation requirement
+        if (enhancedAction.requireUserConfirmation !== undefined) {
+          lines.push(`${indent(3)}require_user_confirmation: ${enhancedAction.requireUserConfirmation ? 'True' : 'False'}`);
+        }
+
+        // Add progress indicator
+        if (enhancedAction.includeProgressIndicator !== undefined) {
+          lines.push(`${indent(3)}include_in_progress_indicator: ${enhancedAction.includeProgressIndicator ? 'True' : 'False'}`);
+        }
+
+        // Add progress message (prefer progressIndicatorMessage over loadingText)
+        const progressMsg = enhancedAction.progressIndicatorMessage || enhancedAction.loadingText;
+        if (progressMsg) {
+          lines.push(`${indent(3)}progress_indicator_message: "${escapeString(sanitizeForSingleLineString(progressMsg))}"`);
+        }
+
+        // Add source if present
+        if (enhancedAction.source) {
+          lines.push(`${indent(3)}source: "${escapeString(enhancedAction.source)}"`);
+        }
+
+        // Enhanced inputs with full metadata
+        if (enhancedAction.inputs?.length) {
           lines.push(`${indent(3)}inputs:`);
-          for (const input of action.inputs) {
-            lines.push(`${indent(4)}${input.name}: ${mapType(input.type)}`);
-            if (input.description) lines.push(`${indent(5)}description: "${escapeString(sanitizeForSingleLineString(input.description))}"`);
+          for (const input of enhancedAction.inputs) {
+            lines.push(`${indent(4)}"${input.name}": ${input.complexDataTypeName || mapType(input.type)}`);
+            if (input.description) {
+              lines.push(`${indent(5)}description: "${escapeString(sanitizeForSingleLineString(input.description))}"`);
+            }
+            if (input.label) {
+              lines.push(`${indent(5)}label: "${escapeString(input.label)}"`);
+            }
+            if (input.required !== undefined) {
+              lines.push(`${indent(5)}is_required: ${input.required ? 'True' : 'False'}`);
+            }
+            if (input.isUserInput !== undefined) {
+              lines.push(`${indent(5)}is_user_input: ${input.isUserInput ? 'True' : 'False'}`);
+            }
+            if (input.complexDataTypeName) {
+              lines.push(`${indent(5)}complex_data_type_name: "${input.complexDataTypeName}"`);
+            }
           }
         }
-        if (action.outputs?.length) {
+
+        // Enhanced outputs with full metadata
+        if (enhancedAction.outputs?.length) {
           lines.push(`${indent(3)}outputs:`);
-          for (const output of action.outputs) {
-            lines.push(`${indent(4)}${output.name}: ${mapType(output.type)}`);
-            if (output.description) lines.push(`${indent(5)}description: "${escapeString(sanitizeForSingleLineString(output.description))}"`);
+          for (const output of enhancedAction.outputs) {
+            lines.push(`${indent(4)}"${output.name}": ${output.complexDataTypeName || mapType(output.type)}`);
+            if (output.description) {
+              lines.push(`${indent(5)}description: "${escapeString(sanitizeForSingleLineString(output.description))}"`);
+            }
+            if (output.label) {
+              lines.push(`${indent(5)}label: "${escapeString(output.label)}"`);
+            }
+            if (output.isDisplayable !== undefined) {
+              lines.push(`${indent(5)}is_displayable: ${output.isDisplayable ? 'True' : 'False'}`);
+            }
+            if (output.filterFromAgent !== undefined) {
+              lines.push(`${indent(5)}filter_from_agent: ${output.filterFromAgent ? 'True' : 'False'}`);
+            }
+            if (output.complexDataTypeName) {
+              lines.push(`${indent(5)}complex_data_type_name: "${output.complexDataTypeName}"`);
+            }
           }
         }
-        lines.push(`${indent(3)}target: "${action.targetType}://${action.targetName}"`);
-        if (action.loadingText) lines.push(`${indent(3)}progress_indicator_message: "${escapeString(sanitizeForSingleLineString(action.loadingText))}"`);
+
+        lines.push(`${indent(3)}target: "${enhancedAction.targetType}://${enhancedAction.targetName}"`);
       }
     }
 

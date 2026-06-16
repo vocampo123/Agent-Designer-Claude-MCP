@@ -10,6 +10,7 @@ export interface ConfigBlock {
   developer_name: string;
   agent_label: string;
   description: string;
+  agent_type?: string;               // e.g., "AgentforceEmployeeAgent", "ServiceAgent"
 }
 
 export interface SystemBlock {
@@ -83,6 +84,12 @@ export interface PersonaCalibration {
 
 export interface LanguageBlock {
   default_locale: string;
+  additional_locales?: string;       // Comma-separated list of additional locales
+}
+
+export interface KnowledgeBlock {
+  citations_enabled?: boolean;
+  search_scope?: string[];           // Which knowledge bases to search
 }
 
 // ============================================
@@ -99,6 +106,9 @@ export interface Variable {
   defaultValue: string;
   description: string;
   category: string;
+  visibility?: 'External' | 'Internal';  // Whether visible outside agent
+  linked?: boolean;                      // Is this a linked variable?
+  source?: string;                       // Source path for linked vars (e.g., @MessagingSession.Id)
 }
 
 // ============================================
@@ -112,6 +122,11 @@ export interface Parameter {
   type: VariableType;
   required?: boolean;
   description?: string;
+  label?: string;                    // Display label in Builder UI
+  isUserInput?: boolean;             // True if user provides, false if system-derived
+  isDisplayable?: boolean;           // Show in UI summaries
+  filterFromAgent?: boolean;         // Hide from agent's view
+  complexDataTypeName?: string;      // e.g., "lightning__recordIdType", "lightning__dateType"
 }
 
 export interface Action {
@@ -122,8 +137,12 @@ export interface Action {
   targetName: string;
   inputs: Parameter[];
   outputs: Parameter[];
+  label?: string;                    // Display name in Builder UI (e.g., "Create Record")
+  source?: string;                   // Source identifier (e.g., "MyAgent__CreateRecord")
   requireUserConfirmation?: boolean;
-  loadingText?: string;
+  includeProgressIndicator?: boolean;
+  progressIndicatorMessage?: string; // Replaces loadingText for consistency
+  loadingText?: string;              // @deprecated - use progressIndicatorMessage instead
 }
 
 // ============================================
@@ -138,6 +157,7 @@ export interface Topic {
   workflow: WorkflowPhase[];
   actionRefs: string[];
   personaCalibration?: PersonaCalibration;
+  label?: string;                    // Display label in Builder UI (uses displayName if not set)
 }
 
 export interface StartAgent {
@@ -145,6 +165,7 @@ export interface StartAgent {
   description: string;
   instructions: string;
   transitions: Transition[];
+  label?: string;                    // Display label in Builder UI
 }
 
 export interface Transition {
@@ -226,6 +247,7 @@ export interface AgentFormData {
   actions: Action[];
   topics: Topic[];
   startAgent: StartAgent;
+  knowledge?: KnowledgeBlock;
   currentStep?: number;
   currentTopicIndex?: number;
 }

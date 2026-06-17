@@ -21,6 +21,10 @@ import {
   applyVariableDefaults,
   inferLabel,
 } from './metadataInference.js';
+import {
+  condenseSystemInstructions,
+  condenseReasoningInstructions,
+} from './contentCondenser.js';
 
 const INDENT = '   '; // 3-space indent per official Agent Script standard
 
@@ -118,38 +122,32 @@ function generateProceduralInstructions(
   topic: Topic,
   actions: Action[],
   formData: AgentFormData
-): string[] {
-  const lines: string[] = [];
-  const base = 3;
+): string {
+  // Generate condensed workflow instead of multi-line instructions
+  const workflowSteps: string[] = [];
   const validVars = new Set((formData.variables ?? []).map(v => v.name));
 
-  // Always start with the topic goal
+  // Start with topic goal
   const topicGoal = topic.displayName || topic.name.replace(/_/g, ' ');
-  lines.push(`${indent(base)}| Help the user with ${escapeMultilineString(topicGoal)}.`);
-  lines.push(`${indent(base)}|`);
+  workflowSteps.push(`Help the user with ${topicGoal}`);
 
+  // Build condensed workflow steps
+  let stepNum = 1;
   for (const phase of topic.workflow ?? []) {
     switch (phase.type) {
       case 'permission': {
         const cfg = (phase.config ?? {}) as PermissionConfig;
         if (cfg.blockedRoles?.length) {
-          const roleVar = cfg.roleVariable || 'requestor_role';
-          if (validVars.has(roleVar)) {
-            for (const role of cfg.blockedRoles) {
-              lines.push(`${indent(base)}| If user role is ${role}: ${escapeMultilineString(cfg.blockMessage || 'Access denied.')}`);
-            }
-          }
+          workflowSteps.push(`${stepNum}. Check permissions (block ${cfg.blockedRoles.join(', ')})`);
+          stepNum++;
         }
         break;
       }
       case 'collect': {
         const cfg = (phase.config ?? {}) as CollectConfig;
-        if (cfg.variableName && cfg.prompt && validVars.has(cfg.variableName)) {
-          lines.push(`${indent(base)}|`);
-          lines.push(`${indent(base)}| Collect ${cfg.variableName.replace(/_/g, ' ')}:`);
-          for (const line of cfg.prompt.split('\n')) {
-            if (line.trim()) lines.push(`${indent(base)}| ${escapeMultilineString(line)}`);
-          }
+        if (cfg.variableName && validVars.has(cfg.variableName)) {
+          workflowSteps.push(`${stepNum}. Collect ${cfg.variableName.replace(/_/g, ' ')}`);
+          stepNum++;
         }
         break;
       }
@@ -158,15 +156,8 @@ function generateProceduralInstructions(
         if (cfg.actionToRun) {
           const action = actions.find(a => a.name === cfg.actionToRun);
           if (action) {
-            lines.push(`${indent(base)}|`);
-            lines.push(`${indent(base)}| Use ${action.name} to ${action.description.toLowerCase()}.`);
-          }
-        }
-        if (cfg.message) {
-          if (cfg.condition) {
-            lines.push(`${indent(base)}| When ${formatConditionForText(cfg.condition)}: ${escapeMultilineString(cfg.message)}`);
-          } else {
-            lines.push(`${indent(base)}| ${escapeMultilineString(cfg.message)}`);
+            workflowSteps.push(`${stepNum}. ${action.description}`);
+            stepNum++;
           }
         }
         break;
@@ -176,30 +167,26 @@ function generateProceduralInstructions(
         if (cfg.actionName) {
           const action = actions.find(a => a.name === cfg.actionName);
           if (action) {
-            lines.push(`${indent(base)}|`);
-            lines.push(`${indent(base)}| Execute ${action.name} to ${action.description.toLowerCase()}.`);
+            workflowSteps.push(`${stepNum}. ${action.description}`);
+            stepNum++;
           }
         }
         break;
       }
       case 'confirm': {
         const cfg = (phase.config ?? {}) as ConfirmConfig;
-        lines.push(`${indent(base)}|`);
-        lines.push(`${indent(base)}| Before submitting, confirm with the user:`);
-        for (const field of cfg.summaryFields ?? []) {
-          if (validVars.has(field)) {
-            const label = field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
-            lines.push(`${indent(base)}| - ${label}`);
-          }
+        const fields = (cfg.summaryFields ?? []).filter(f => validVars.has(f)).join(', ');
+        if (fields) {
+          workflowSteps.push(`${stepNum}. Confirm ${fields} with user before submitting`);
+          stepNum++;
         }
-        if (cfg.confirmPrompt) lines.push(`${indent(base)}| ${escapeMultilineString(cfg.confirmPrompt)}`);
-        if (cfg.successMessage) lines.push(`${indent(base)}| On success: ${escapeMultilineString(cfg.successMessage)}`);
         break;
       }
     }
   }
 
-  return lines;
+  // Condense into single line workflow
+  return condenseReasoningInstructions(workflowSteps.join('. '));
 }
 
 function generateReasoningActionsBlock(
@@ -401,22 +388,16 @@ export function generateAgentScript(formData: AgentFormData): string {
 
   // SYSTEM
   lines.push('system:');
+
+  // System instructions MUST be simple quoted strings (not block scalars)
+  if (formData.system?.instructions && formData.system.instructions.trim()) {
+    const condensed = condenseSystemInstructions(formData.system.instructions);
+    lines.push(`${indent(1)}instructions: "${escapeString(condensed)}"`);
+  }
+
   lines.push(`${indent(1)}messages:`);
   lines.push(`${indent(2)}welcome: "${escapeString(formData.system?.messages?.welcome || 'Hello! How can I help you today?')}"`);
   lines.push(`${indent(2)}error: "${escapeString(formData.system?.messages?.error || 'I encountered an error. Please try again.')}"`);
-
-  if (formData.system?.instructions && formData.system.instructions.trim()) {
-    lines.push(`${indent(1)}instructions: |`);
-    const instructionLines = formData.system.instructions.split('\n');
-    // Ensure at least one line for the block scalar
-    if (instructionLines.every(l => !l.trim())) {
-      lines.push(`${indent(2)}Follow best practices for agent conversations.`);
-    } else {
-      for (const line of instructionLines) {
-        lines.push(`${indent(2)}${escapeMultilineString(line)}`);
-      }
-    }
-  }
   lines.push('');
 
   // VARIABLES
@@ -486,19 +467,12 @@ export function generateAgentScript(formData: AgentFormData): string {
   lines.push(`${indent(1)}reasoning:`);
   lines.push(`${indent(2)}instructions: ->`);
 
-  // Always provide at least one instruction line to avoid empty block
-  if (formData.startAgent?.instructions) {
-    const instructionLines = formData.startAgent.instructions.split('\n').filter(l => l.trim());
-    if (instructionLines.length === 0) {
-      lines.push(`${indent(3)}| Route the user to the appropriate topic based on their request.`);
-    } else {
-      for (const line of instructionLines) {
-        lines.push(`${indent(3)}| ${escapeMultilineString(line.trim())}`);
-      }
-    }
+  // Condense instructions for Agentforce Studio compatibility
+  if (formData.startAgent?.instructions && formData.startAgent.instructions.trim()) {
+    const condensed = condenseReasoningInstructions(formData.startAgent.instructions);
+    lines.push(`${indent(3)}| ${condensed}`);
   } else {
-    lines.push(`${indent(3)}| Route the user to the appropriate topic based on their request.`);
-    lines.push(`${indent(3)}| If unclear, ask clarifying questions.`);
+    lines.push(`${indent(3)}| Route the user to the appropriate topic based on their request. If unclear, ask clarifying questions.`);
   }
 
   if (formData.startAgent?.transitions?.length) {
@@ -612,13 +586,14 @@ export function generateAgentScript(formData: AgentFormData): string {
 
     lines.push(`${indent(1)}reasoning:`);
     lines.push(`${indent(2)}instructions: ->`);
-    const instructionLines = generateProceduralInstructions(topic, topicActions, formData);
 
-    // Ensure we always have at least one instruction line to avoid empty blocks
-    if (instructionLines.length === 0) {
-      lines.push(`${indent(3)}| Help the user with ${escapeMultilineString(topic.displayName || topic.name.replace(/_/g, ' '))}.`);
+    // Generate condensed single-line instructions
+    const condensedInstructions = generateProceduralInstructions(topic, topicActions, formData);
+    if (condensedInstructions) {
+      lines.push(`${indent(3)}| ${condensedInstructions}`);
     } else {
-      lines.push(...instructionLines);
+      const fallback = `Help the user with ${topic.displayName || topic.name.replace(/_/g, ' ')}`;
+      lines.push(`${indent(3)}| ${fallback}`);
     }
 
     if (topic.personaCalibration) lines.push(...generatePersonaCalibrationBlock(topic.personaCalibration));

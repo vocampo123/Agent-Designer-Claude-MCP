@@ -64,25 +64,23 @@ export function condenseReasoningInstructions(instructions: string): string {
 
 /**
  * Converts verbose instructions into compact workflow format
- * "Do step 1. Then step 2. Finally step 3." → "Workflow: 1. Step 1. 2. Step 2. 3. Step 3."
+ * "Do step 1. Then step 2. Finally step 3." → "1. Step 1. 2. Step 2. 3. Step 3."
+ * NOTE: Avoid using "Workflow:" prefix as colons can confuse YAML parser
  */
 export function formatAsWorkflow(instructions: string): string {
   const condensed = condenseReasoningInstructions(instructions);
 
-  // If already starts with "Workflow:", return as-is
-  if (condensed.toLowerCase().startsWith('workflow:')) {
-    return condensed;
-  }
+  // Remove any existing "Workflow:" prefix (colons cause YAML parsing issues)
+  let content = condensed.replace(/^workflow:\s*/i, '');
 
   // Try to detect numbered steps and reformat
-  const stepMatches = condensed.match(/(\d+)[.)]?\s+([^.]+)/g);
+  const stepMatches = content.match(/(\d+)[.)]?\s+([^.]+)/g);
   if (stepMatches && stepMatches.length >= 2) {
     const steps = stepMatches.map(step => step.trim()).join(' ');
-    return `Workflow: ${steps}`;
+    return steps;
   }
 
-  // Otherwise just prefix with "Workflow: "
-  return `Workflow: ${condensed}`;
+  return content;
 }
 
 /**
@@ -111,20 +109,22 @@ export function condenseSystemInstructions(instructions: string): string {
 /**
  * Generates compact workflow description from structured phases
  * Used for generating reasoning instructions from workflow phases
+ * NOTE: Avoid "Workflow:" prefix - colons confuse YAML parser
  */
 export function generateCompactWorkflow(steps: string[]): string {
   if (!steps.length) return '';
 
-  // Format as numbered workflow
+  // Format as numbered workflow (no "Workflow:" prefix to avoid YAML colon issues)
   const numberedSteps = steps
     .map((step, i) => `${i + 1}. ${step.trim()}`)
     .join(' ');
 
-  return `Workflow: ${numberedSteps}`;
+  return numberedSteps;
 }
 
 /**
  * Formats error handling guidance in compact form
+ * NOTE: Avoid "Error handling:" prefix - colons confuse YAML parser
  */
 export function formatErrorHandling(errorPatterns: string[]): string {
   if (!errorPatterns.length) return '';
@@ -133,11 +133,13 @@ export function formatErrorHandling(errorPatterns: string[]): string {
     .map(pattern => pattern.trim())
     .join('. ');
 
-  return `Error handling: ${condensed}`;
+  // Use "If X happens" format instead of "Error handling:" to avoid YAML colon issues
+  return `If errors occur: ${condensed}`;
 }
 
 /**
  * Formats context preservation rules in compact form
+ * NOTE: Avoid colons in prefixes - they confuse YAML parser
  */
 export function formatContextRules(rules: string[]): string {
   if (!rules.length) return '';
@@ -146,12 +148,14 @@ export function formatContextRules(rules: string[]): string {
     .map(rule => rule.trim())
     .join(', ');
 
-  return `Context preservation: ${condensed}`;
+  // Use "Remember" instead of "Context preservation:" to avoid YAML colon issues
+  return `Remember ${condensed} across turns`;
 }
 
 /**
  * Main function: generates production-ready reasoning instructions
  * Combines workflow, error handling, and context rules into compact format
+ * NOTE: Avoids colons in output to prevent YAML parsing issues
  */
 export function generateProductionInstructions(config: {
   workflow?: string[];
@@ -161,9 +165,12 @@ export function generateProductionInstructions(config: {
 }): string {
   const parts: string[] = [];
 
-  // If raw instructions provided, condense and use
+  // If raw instructions provided, condense and use (strip any colons that might cause issues)
   if (config.rawInstructions) {
-    return condenseReasoningInstructions(config.rawInstructions);
+    let condensed = condenseReasoningInstructions(config.rawInstructions);
+    // Remove common colon-prefixed labels that confuse YAML parser
+    condensed = condensed.replace(/\b(workflow|error handling|context preservation|next steps):\s*/gi, '');
+    return condensed;
   }
 
   // Build from structured components

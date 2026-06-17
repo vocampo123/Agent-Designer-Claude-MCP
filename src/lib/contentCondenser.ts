@@ -1,91 +1,177 @@
-// Content Condenser for Agentforce Studio YAML Compatibility
-// Agentforce Studio's YAML parser requires condensed, minimally-formatted content
-// in reasoning instruction blocks. This module strips heavy markdown and condenses
-// multi-paragraph content into compact workflow descriptions.
+// Content Formatter for Agentforce Studio Compatibility
+// Based on analysis of production-verified agent scripts that successfully
+// parse and simulate in Agentforce Studio.
+//
+// KEY FINDINGS FROM WORKING SCRIPTS:
+// 1. Multi-line instructions ARE supported (not single-line only)
+// 2. Bold markdown (**text**) IS supported within instruction blocks
+// 3. Numbered lists ARE supported
+// 4. The `|` character only appears on the FIRST line after `->`
+// 5. Continuation lines use INDENTATION ONLY (no `|` prefix)
+// 6. System instructions use simple quoted strings (not block scalars)
+// 7. Colons are fine when inside bold markers or mid-sentence
+
+const INDENT = '   '; // 3-space indent per Agent Script standard
+
+function ind(level: number): string {
+  return INDENT.repeat(level);
+}
 
 /**
- * Condenses instruction content for reasoning blocks
- * Removes heavy markdown formatting, blank lines, and excessive whitespace
- * Converts multi-paragraph content into compact workflow descriptions
+ * Formats reasoning instructions for Agentforce Studio using the verified format.
+ * Returns an array of properly indented lines ready to insert into the script.
+ *
+ * FORMAT (verified working):
+ * ```
+ * instructions: ->
+ *     | **First line content**
+ *       Continuation with indentation
+ *       1. Numbered steps
+ *          Sub-detail
+ *
+ *       **Another section:**
+ *       More content
+ * ```
+ *
+ * Rules:
+ * - First content line: `| ` prefix at indent level 3
+ * - Continuation lines: spaces only at indent level 3+1 (no `|`)
+ * - Blank lines between sections: just the indent
+ * - Bold labels (**text:**) are safe and ENCOURAGED for structure
  */
-export function condenseReasoningInstructions(instructions: string): string {
-  if (!instructions || !instructions.trim()) {
-    return '';
+export function formatReasoningBlock(content: string, baseIndent: number = 3): string[] {
+  if (!content || !content.trim()) {
+    return [`${ind(baseIndent)}| Help the user complete their request.`];
   }
 
-  let content = instructions;
+  const lines: string[] = [];
+  const contentLines = content.split('\n');
+  let isFirstLine = true;
 
-  // Remove markdown headers (## Header, ### Header)
-  content = content.replace(/^#{1,6}\s+/gm, '');
+  for (const line of contentLines) {
+    const trimmed = line.trim();
 
-  // Remove bold/italic markdown (**text**, *text*, __text__)
-  content = content.replace(/\*\*([^*]+)\*\*/g, '$1');
-  content = content.replace(/\*([^*]+)\*/g, '$1');
-  content = content.replace(/__([^_]+)__/g, '$1');
-  content = content.replace(/_([^_]+)_/g, '$1');
-
-  // Remove bullet points and convert to inline format
-  // "- Item 1\n- Item 2" → "Item 1. Item 2."
-  content = content.replace(/^\s*[-*+]\s+/gm, '');
-
-  // Remove numbered list markers
-  // "1. Step\n2. Step" → "Step. Step."
-  content = content.replace(/^\s*\d+\.\s+/gm, '');
-
-  // Remove blank lines (multiple newlines)
-  content = content.replace(/\n\s*\n/g, '\n');
-
-  // Convert newlines to spaces (collapse to single line)
-  content = content.replace(/\n/g, ' ');
-
-  // Remove excessive whitespace
-  content = content.replace(/\s+/g, ' ');
-
-  // Remove code blocks/backticks
-  content = content.replace(/`([^`]+)`/g, '$1');
-
-  // Trim
-  content = content.trim();
-
-  // If still too long, truncate with intelligence
-  if (content.length > 500) {
-    // Try to break at sentence boundary
-    const sentences = content.match(/[^.!?]+[.!?]+/g) || [];
-    let condensed = '';
-    for (const sentence of sentences) {
-      if ((condensed + sentence).length > 500) break;
-      condensed += sentence;
+    if (isFirstLine) {
+      // First line gets the `| ` prefix
+      if (trimmed) {
+        lines.push(`${ind(baseIndent)}| ${trimmed}`);
+        isFirstLine = false;
+      }
+    } else if (!trimmed) {
+      // Blank line — emit empty line at continuation indent
+      lines.push('');
+    } else {
+      // Continuation lines — indentation only, no `|`
+      // Detect indentation level from original line
+      const leadingSpaces = line.match(/^(\s*)/)?.[1]?.length ?? 0;
+      const extraIndent = Math.floor(leadingSpaces / 2);
+      lines.push(`${ind(baseIndent + 1)}${' '.repeat(extraIndent * 2)}${trimmed}`);
     }
-    content = condensed || content.substring(0, 500);
   }
 
-  return content;
+  // Ensure we produced at least one line
+  if (lines.length === 0) {
+    lines.push(`${ind(baseIndent)}| Help the user complete their request.`);
+  }
+
+  return lines;
 }
 
 /**
- * Converts verbose instructions into compact workflow format
- * "Do step 1. Then step 2. Finally step 3." → "1. Step 1. 2. Step 2. 3. Step 3."
- * NOTE: Avoid using "Workflow:" prefix as colons can confuse YAML parser
+ * Generates structured reasoning instructions from workflow phases.
+ * Produces multi-line formatted output matching the production-verified format.
+ *
+ * Output format:
+ * ```
+ * **Key workflow:**
+ * 1. First step
+ *    Sub-detail about first step
+ * 2. Second step
+ *    Sub-detail about second step
+ *
+ * **Error handling:**
+ * If X happens, do Y. Preserve context across errors.
+ * ```
  */
-export function formatAsWorkflow(instructions: string): string {
-  const condensed = condenseReasoningInstructions(instructions);
+export function generateStructuredInstructions(config: {
+  goal: string;
+  workflow?: string[];
+  errorHandling?: string[];
+  contextRules?: string[];
+}): string {
+  const sections: string[] = [];
 
-  // Remove any existing "Workflow:" prefix (colons cause YAML parsing issues)
-  let content = condensed.replace(/^workflow:\s*/i, '');
+  // Goal line
+  sections.push(`Help the user ${config.goal}.`);
+  sections.push('');
 
-  // Try to detect numbered steps and reformat
-  const stepMatches = content.match(/(\d+)[.)]?\s+([^.]+)/g);
-  if (stepMatches && stepMatches.length >= 2) {
-    const steps = stepMatches.map(step => step.trim()).join(' ');
-    return steps;
+  // Workflow section
+  if (config.workflow?.length) {
+    sections.push('**Key workflow:**');
+    for (let i = 0; i < config.workflow.length; i++) {
+      sections.push(`${i + 1}. ${config.workflow[i]}`);
+    }
+    sections.push('');
   }
 
-  return content;
+  // Error handling section
+  if (config.errorHandling?.length) {
+    sections.push('**Error handling:**');
+    sections.push(config.errorHandling.join(' '));
+    sections.push('');
+  }
+
+  // Context preservation
+  if (config.contextRules?.length) {
+    if (!config.errorHandling?.length) {
+      sections.push('**Error handling:**');
+    }
+    sections.push(`Context preservation: Remember ${config.contextRules.join(', ')} across errors.`);
+  }
+
+  return sections.join('\n');
 }
 
 /**
- * Condenses system instructions to a single simple string
- * System instructions should be brief and unformatted
+ * Generates start_agent routing instructions in the verified format.
+ * These use bold topic labels and keyword/example patterns.
+ */
+export function generateRoutingInstructions(topics: Array<{
+  name: string;
+  label?: string;
+  keywords?: string[];
+  description?: string;
+}>): string {
+  if (!topics.length) {
+    return 'Route the user to the appropriate topic based on their request. If unclear, ask clarifying questions.';
+  }
+
+  const sections: string[] = [];
+  sections.push('**Topic Selection Priority**');
+  sections.push('');
+
+  for (let i = 0; i < topics.length; i++) {
+    const topic = topics[i];
+    const label = topic.label || topic.name.replace(/_/g, ' ');
+    sections.push(`  ${i + 1}. **${label}**`);
+    if (topic.keywords?.length) {
+      sections.push(`     Keywords: ${topic.keywords.map(k => `"${k}"`).join(', ')}`);
+    }
+    if (topic.description) {
+      sections.push(`     Use when: ${topic.description}`);
+    }
+    sections.push('');
+  }
+
+  sections.push('  **Routing Note:** If the user\'s intent is ambiguous, ask a clarifying question before routing.');
+
+  return sections.join('\n');
+}
+
+/**
+ * Condenses system instructions to a simple quoted string.
+ * System instructions MUST be simple strings (not block scalars).
+ * This is the ONE place where condensing is appropriate.
  */
 export function condenseSystemInstructions(instructions: string): string {
   if (!instructions || !instructions.trim()) {
@@ -94,97 +180,62 @@ export function condenseSystemInstructions(instructions: string): string {
 
   let content = instructions;
 
-  // Apply same condensing as reasoning instructions
-  content = condenseReasoningInstructions(content);
+  // Remove markdown formatting for system instructions only
+  content = content.replace(/\*\*([^*]+)\*\*/g, '$1');
+  content = content.replace(/\*([^*]+)\*/g, '$1');
+  content = content.replace(/__([^_]+)__/g, '$1');
 
-  // System instructions should be even more concise - max 200 chars
-  if (content.length > 200) {
-    const firstSentence = content.match(/^[^.!?]+[.!?]/)?.[0] || content.substring(0, 200);
-    content = firstSentence.trim();
-  }
+  // Remove headers
+  content = content.replace(/^#{1,6}\s+/gm, '');
 
-  return content;
+  // Remove bullet points
+  content = content.replace(/^\s*[-*+]\s+/gm, '');
+
+  // Collapse newlines to spaces
+  content = content.replace(/\n+/g, ' ');
+
+  // Remove excessive whitespace
+  content = content.replace(/\s+/g, ' ');
+
+  return content.trim();
 }
 
-/**
- * Generates compact workflow description from structured phases
- * Used for generating reasoning instructions from workflow phases
- * NOTE: Avoid "Workflow:" prefix - colons confuse YAML parser
- */
+// Keep these for backward compat but they now just pass through
+export function condenseReasoningInstructions(instructions: string): string {
+  // NO LONGER CONDENSES - reasoning instructions support full multi-line content
+  // This function is kept for backward compat but now returns content as-is
+  return instructions?.trim() || '';
+}
+
 export function generateCompactWorkflow(steps: string[]): string {
   if (!steps.length) return '';
-
-  // Format as numbered workflow (no "Workflow:" prefix to avoid YAML colon issues)
-  const numberedSteps = steps
-    .map((step, i) => `${i + 1}. ${step.trim()}`)
-    .join(' ');
-
-  return numberedSteps;
+  return steps.map((step, i) => `${i + 1}. ${step.trim()}`).join('\n');
 }
 
-/**
- * Formats error handling guidance in compact form
- * NOTE: Avoid "Error handling:" prefix - colons confuse YAML parser
- */
 export function formatErrorHandling(errorPatterns: string[]): string {
   if (!errorPatterns.length) return '';
-
-  const condensed = errorPatterns
-    .map(pattern => pattern.trim())
-    .join('. ');
-
-  // Use "If X happens" format instead of "Error handling:" to avoid YAML colon issues
-  return `If errors occur: ${condensed}`;
+  return errorPatterns.map(p => p.trim()).join(' ');
 }
 
-/**
- * Formats context preservation rules in compact form
- * NOTE: Avoid colons in prefixes - they confuse YAML parser
- */
 export function formatContextRules(rules: string[]): string {
   if (!rules.length) return '';
-
-  const condensed = rules
-    .map(rule => rule.trim())
-    .join(', ');
-
-  // Use "Remember" instead of "Context preservation:" to avoid YAML colon issues
-  return `Remember ${condensed} across turns`;
+  return `Context preservation: Remember ${rules.join(', ')} across errors.`;
 }
 
-/**
- * Main function: generates production-ready reasoning instructions
- * Combines workflow, error handling, and context rules into compact format
- * NOTE: Avoids colons in output to prevent YAML parsing issues
- */
 export function generateProductionInstructions(config: {
   workflow?: string[];
   errorHandling?: string[];
   contextRules?: string[];
   rawInstructions?: string;
 }): string {
-  const parts: string[] = [];
-
-  // If raw instructions provided, condense and use (strip any colons that might cause issues)
   if (config.rawInstructions) {
-    let condensed = condenseReasoningInstructions(config.rawInstructions);
-    // Remove common colon-prefixed labels that confuse YAML parser
-    condensed = condensed.replace(/\b(workflow|error handling|context preservation|next steps):\s*/gi, '');
-    return condensed;
+    return config.rawInstructions.trim();
   }
 
-  // Build from structured components
-  if (config.workflow?.length) {
-    parts.push(generateCompactWorkflow(config.workflow));
-  }
-
-  if (config.errorHandling?.length) {
-    parts.push(formatErrorHandling(config.errorHandling));
-  }
-
-  if (config.contextRules?.length) {
-    parts.push(formatContextRules(config.contextRules));
-  }
-
-  return parts.join('. ');
+  return generateStructuredInstructions({
+    goal: 'complete their request',
+    workflow: config.workflow,
+    errorHandling: config.errorHandling,
+    contextRules: config.contextRules,
+  });
 }

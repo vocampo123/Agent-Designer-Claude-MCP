@@ -23,7 +23,7 @@ import {
 } from './metadataInference.js';
 import {
   condenseSystemInstructions,
-  condenseReasoningInstructions,
+  formatReasoningBlock,
 } from './contentCondenser.js';
 
 const INDENT = '   '; // 3-space indent per official Agent Script standard
@@ -106,6 +106,28 @@ function formatConditionForText(condition: string): string {
     .replace(/_/g, ' ');
 }
 
+function generateDefaultRoutingInstructions(topics: Topic[]): string {
+  if (!topics.length) {
+    return 'Route the user to the appropriate topic based on their request. If unclear, ask clarifying questions.';
+  }
+
+  const sections: string[] = [];
+  sections.push('**Topic Selection Priority**');
+  sections.push('');
+
+  for (let i = 0; i < topics.length; i++) {
+    const t = topics[i];
+    const label = t.label || t.displayName || t.name.replace(/_/g, ' ');
+    sections.push(`  ${i + 1}. **${label}**`);
+    sections.push(`     Use when: ${t.description}`);
+    sections.push('');
+  }
+
+  sections.push('  **Routing Note:** If the user\'s intent is ambiguous, ask a clarifying question before routing.');
+
+  return sections.join('\n');
+}
+
 function getActionRefsFromWorkflow(workflow: WorkflowPhase[]): string[] {
   const refs = new Set<string>();
   for (const phase of workflow) {
@@ -123,22 +145,24 @@ function generateProceduralInstructions(
   actions: Action[],
   formData: AgentFormData
 ): string {
-  // Generate condensed workflow instead of multi-line instructions
-  const workflowSteps: string[] = [];
+  // Generate multi-line structured instructions matching production format
+  const sections: string[] = [];
   const validVars = new Set((formData.variables ?? []).map(v => v.name));
 
-  // Start with topic goal
+  // Topic goal
   const topicGoal = topic.displayName || topic.name.replace(/_/g, ' ');
-  workflowSteps.push(`Help the user with ${topicGoal}`);
 
-  // Build condensed workflow steps
+  // Build workflow steps with detail
+  const workflowSteps: string[] = [];
   let stepNum = 1;
   for (const phase of topic.workflow ?? []) {
     switch (phase.type) {
       case 'permission': {
         const cfg = (phase.config ?? {}) as PermissionConfig;
         if (cfg.blockedRoles?.length) {
-          workflowSteps.push(`${stepNum}. Check permissions (block ${cfg.blockedRoles.join(', ')})`);
+          let step = `${stepNum}. Check permissions`;
+          step += `\n   If user role is ${cfg.blockedRoles.join(' or ')}: ${cfg.blockMessage || 'Access denied'}`;
+          workflowSteps.push(step);
           stepNum++;
         }
         break;
@@ -146,7 +170,12 @@ function generateProceduralInstructions(
       case 'collect': {
         const cfg = (phase.config ?? {}) as CollectConfig;
         if (cfg.variableName && validVars.has(cfg.variableName)) {
-          workflowSteps.push(`${stepNum}. Collect ${cfg.variableName.replace(/_/g, ' ')}`);
+          let step = `${stepNum}. Collect ${cfg.variableName.replace(/_/g, ' ')}`;
+          if (cfg.prompt) {
+            const firstLine = cfg.prompt.split('\n')[0].trim();
+            if (firstLine) step += `\n   ${firstLine}`;
+          }
+          workflowSteps.push(step);
           stepNum++;
         }
         break;
@@ -156,7 +185,14 @@ function generateProceduralInstructions(
         if (cfg.actionToRun) {
           const action = actions.find(a => a.name === cfg.actionToRun);
           if (action) {
-            workflowSteps.push(`${stepNum}. ${action.description}`);
+            let step = `${stepNum}. Use ${action.name} to ${action.description.toLowerCase()}`;
+            if (cfg.condition) {
+              step += `\n   Available when ${formatConditionForText(cfg.condition)}`;
+            }
+            if (cfg.message) {
+              step += `\n   ${cfg.message}`;
+            }
+            workflowSteps.push(step);
             stepNum++;
           }
         }
@@ -167,7 +203,7 @@ function generateProceduralInstructions(
         if (cfg.actionName) {
           const action = actions.find(a => a.name === cfg.actionName);
           if (action) {
-            workflowSteps.push(`${stepNum}. ${action.description}`);
+            workflowSteps.push(`${stepNum}. Execute ${action.name} to ${action.description.toLowerCase()}`);
             stepNum++;
           }
         }
@@ -175,18 +211,36 @@ function generateProceduralInstructions(
       }
       case 'confirm': {
         const cfg = (phase.config ?? {}) as ConfirmConfig;
-        const fields = (cfg.summaryFields ?? []).filter(f => validVars.has(f)).join(', ');
-        if (fields) {
-          workflowSteps.push(`${stepNum}. Confirm ${fields} with user before submitting`);
-          stepNum++;
+        const fields = (cfg.summaryFields ?? []).filter(f => validVars.has(f));
+        let step = `${stepNum}. Confirm with user before submitting`;
+        if (fields.length) {
+          step += `\n   Show: ${fields.map(f => f.replace(/_/g, ' ')).join(', ')}`;
         }
+        if (cfg.confirmPrompt) step += `\n   ${cfg.confirmPrompt}`;
+        if (cfg.successMessage) step += `\n   On success: ${cfg.successMessage}`;
+        workflowSteps.push(step);
+        stepNum++;
         break;
       }
     }
   }
 
-  // Condense into single line workflow
-  return condenseReasoningInstructions(workflowSteps.join('. '));
+  // Assemble the full instruction content
+  sections.push(`Help the user with ${topicGoal}.`);
+  sections.push('');
+  sections.push('**Key workflow:**');
+  if (workflowSteps.length) {
+    sections.push(...workflowSteps);
+  } else {
+    sections.push(`1. Identify required information`);
+    sections.push(`2. Execute the requested action`);
+    sections.push(`3. Confirm results with the user`);
+  }
+  sections.push('');
+  sections.push('**Error handling:**');
+  sections.push('If an action fails, explain what went wrong and offer alternatives. Preserve context across errors so the user does not need to repeat information.');
+
+  return sections.join('\n');
 }
 
 function generateReasoningActionsBlock(
@@ -467,12 +521,15 @@ export function generateAgentScript(formData: AgentFormData): string {
   lines.push(`${indent(1)}reasoning:`);
   lines.push(`${indent(2)}instructions: ->`);
 
-  // Condense instructions for Agentforce Studio compatibility
+  // Multi-line reasoning instructions (matching production format)
   if (formData.startAgent?.instructions && formData.startAgent.instructions.trim()) {
-    const condensed = condenseReasoningInstructions(formData.startAgent.instructions);
-    lines.push(`${indent(3)}| ${condensed}`);
+    const instructionBlock = formatReasoningBlock(formData.startAgent.instructions);
+    lines.push(...instructionBlock);
   } else {
-    lines.push(`${indent(3)}| Route the user to the appropriate topic based on their request. If unclear, ask clarifying questions.`);
+    // Generate default routing instructions from topics
+    const defaultRouting = generateDefaultRoutingInstructions(formData.topics ?? []);
+    const instructionBlock = formatReasoningBlock(defaultRouting);
+    lines.push(...instructionBlock);
   }
 
   if (formData.startAgent?.transitions?.length) {
@@ -587,14 +644,10 @@ export function generateAgentScript(formData: AgentFormData): string {
     lines.push(`${indent(1)}reasoning:`);
     lines.push(`${indent(2)}instructions: ->`);
 
-    // Generate condensed single-line instructions
-    const condensedInstructions = generateProceduralInstructions(topic, topicActions, formData);
-    if (condensedInstructions) {
-      lines.push(`${indent(3)}| ${condensedInstructions}`);
-    } else {
-      const fallback = `Help the user with ${topic.displayName || topic.name.replace(/_/g, ' ')}`;
-      lines.push(`${indent(3)}| ${fallback}`);
-    }
+    // Generate multi-line structured instructions (matching production format)
+    const instructionContent = generateProceduralInstructions(topic, topicActions, formData);
+    const instructionBlock = formatReasoningBlock(instructionContent);
+    lines.push(...instructionBlock);
 
     if (topic.personaCalibration) lines.push(...generatePersonaCalibrationBlock(topic.personaCalibration));
 
